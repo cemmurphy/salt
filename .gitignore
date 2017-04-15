@@ -30,6 +30,7 @@ MANIFEST
 /tests/cachedir/
 /tests/unit/templates/roots/
 /var/
+.Python
 
 # setuptools stuff
 *.egg-info
