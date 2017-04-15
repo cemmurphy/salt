@@ -450,6 +450,11 @@ VALID_CREATE_OPTS = {
         'path': 'HostConfig:NetworkMode',
         'default': 'default',
     },
+    'ipv4_address': {
+        'path': 'NetworkSettings:Networks:<network_mode>:IPAddress',
+        'default': None,
+        'min_docker': (1, 12, 0),
+    },
     'restart_policy': {
         'path': 'HostConfig:RestartPolicy',
         'min_docker': (1, 2, 0),
@@ -1520,6 +1525,25 @@ def _validate_input(kwargs,
                 'network_mode must be one of \'bridge\', \'host\', '
                 '\'container:<id or name>\' or a name of a network.'
             )
+
+    def _valid_ipv4_address():
+        '''
+        Must be a string
+        '''
+        if kwargs['ipv4_address'] is None:
+            return
+        try:
+            _valid_string('ipv4_address')
+        except SaltInvocationError:
+            raise SaltInvocationError('ipv4_address must be a string')
+
+        network_mode = kwargs.get('network_mode')
+        if network_mode is None or network_mode in ('bridge', 'host', 'null'):
+            raise SaltInvocationError('ipv4_address not allowed for network_mode: \'{0}\''.format(network_mode))
+
+        if validate_ip_addrs:
+            if not salt.utils.network.is_ip(kwargs['ipv4_address']):
+                raise SaltInvocationError('ip address \'{0}\' is not a valid IP address'.format(kwargs['ipv4_address']))
 
     def _valid_restart_policy():  # pylint: disable=unused-variable
         '''
@@ -2981,6 +3005,14 @@ def create(image,
             **dict((arg, create_kwargs.pop(arg, None)) for arg in host_config_args if arg != 'version')
         )
 
+    # Handle creating Networking Config if ipv4_address is present
+    if 'ipv4_address' in kwargs:
+        ipv4_address = kwargs.pop('ipv4_address')
+        client = _get_client()
+        endpoint_config = client.create_endpoint_config(ipv4_address=ipv4_address)
+        networking_config = client.create_networking_config({kwargs['network_mode']: endpoint_config})
+        kwargs['networking_config'] = networking_config
+
     log.debug(
         'dockerng.create is using the following kwargs to create '
         'container \'{0}\' from image \'{1}\': {2}'
@@ -4428,7 +4460,7 @@ def inspect_network(network_id):
     return response
 
 
-def connect_container_to_network(container, network_id):
+def connect_container_to_network(container, network_id, ipv4_address=None):
     '''
     Connect container to network.
 
@@ -4446,7 +4478,8 @@ def connect_container_to_network(container, network_id):
     '''
     response = _client_wrapper('connect_container_to_network',
                                container,
-                               network_id)
+                               network_id,
+                               ipv4_address)
     _clear_context()
     # Only non-error return case is a True return, so just return the response
     return response

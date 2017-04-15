@@ -703,10 +703,24 @@ class DockerngTestCase(TestCase):
                 )
         dockerng_create_network.assert_called_with('network_foo', driver=None)
         dockerng_connect_container_to_network.assert_called_with('abcd',
-                                                                 'network_foo')
+                                                                 'network_foo', ipv4_address=None)
         self.assertEqual(ret, {'name': 'network_foo',
                                'comment': '',
-                               'changes': {'connected': 'connected',
+                               'changes': {'connected': ['container: connected'],
+                                           'created': 'created'},
+                               'result': True})
+
+        # Test for containers with ipv4_address parameters
+        with patch.dict(dockerng_state.__dict__,
+                        {'__salt__': __salt__}):
+            ret = dockerng_state.network_present(
+                'network_foo2',
+                containers=[{'container1': {'ipv4_address': '192.168.1.1'}}, {'container2': {'ipv4_address': '192.168.1.2'}}],
+                )
+            
+        self.assertEqual(ret, {'name': 'network_foo2',
+                               'comment': '',
+                               'changes': {'connected': ['container1: 192.168.1.1', 'container2: 192.168.1.2'],
                                            'created': 'created'},
                                'result': True})
 

@@ -137,7 +137,21 @@ def _compare(actual, create_kwargs, defaults_from_image):
     Compare the desired configuration against the actual configuration returned
     by dockerng.inspect_container
     '''
+    def _replace_path_parameters(path):
+        try:
+            start = path.index("<") + 1
+            end = path.index(">")
+            param = path[start:end]
+            param_value = create_kwargs.get(param)
+            if param_value:
+                return path.replace("<" + param + ">", param_value)
+            else:
+                return path
+        except ValueError:
+            return path
+
     def _get(path, default=None):
+        path = _replace_path_parameters(path)
         return salt.utils.traverse_dict(actual, path, default, delimiter=':')
 
     def _image_get(path, default=None):
@@ -1615,7 +1629,7 @@ def running(name,
         return ret
     if kwargs.get('hostname') is not None \
             and kwargs.get('network_mode') == 'host':
-        ret['comment'] = 'Cannot mix hostname with network_mode=True'
+        ret['comment'] = 'Cannot mix hostname with network_mode=host'
         return ret
 
     # Strip __pub kwargs and divide the remaining arguments into the ones for
@@ -2164,6 +2178,7 @@ def network_present(name, driver=None, containers=None):
             - name: bar
             - containers:
                 - cont1
+                    ipv4_address: 192.168.1.1
                 - cont2
 
     '''
@@ -2171,28 +2186,42 @@ def network_present(name, driver=None, containers=None):
            'changes': {},
            'result': False,
            'comment': ''}
+
+    address_map = {}
     if containers is None:
         containers = []
+    else:
+        if salt.utils.is_dictlist(containers):
+            repacked_containers = salt.utils.repack_dictlist(containers)
+            for container, item in repacked_containers.iteritems():
+                address_map[container] = item.get('ipv4_address', None)
+            containers = repacked_containers.keys()
+
     # map containers to container's Ids.
-    containers = [__salt__['dockerng.inspect_container'](c)['Id'] for c in containers]
+    containers = [{"id": __salt__['dockerng.inspect_container'](c)['Id'], "name": c} for c in containers]
     networks = __salt__['dockerng.networks'](names=[name])
+    containers_connected = []
+
     if networks:
         network = networks[0]  # we expect network's name to be unique
-        if all(c in network['Containers'] for c in containers):
+        if all(c['id'] in network['Containers'] for c in containers):
             ret['result'] = True
             ret['comment'] = 'Network \'{0}\' already exists.'.format(name)
             return ret
         result = True
+
         for container in containers:
-            if container not in network['Containers']:
+            if container['id'] not in network['Containers']:
                 try:
-                    ret['changes']['connected'] = __salt__['dockerng.connect_container_to_network'](
-                        container, name)
+                    __salt__['dockerng.connect_container_to_network'](
+                            container['id'], name, ipv4_address=address_map.get(container['name']))
+                    containers_connected.append("{0}: {1}".format(container['name'], address_map.get(container['name'], 'connected')))
                 except Exception as exc:
                     ret['comment'] = ('Failed to connect container \'{0}\' to network \'{1}\' {2}'.format(
-                        container, name, exc))
+                        container['id'], name, exc))
                     result = False
-            ret['result'] = result
+        ret['changes']['connected'] = containers_connected
+        ret['result'] = result
 
     else:
         try:
@@ -2205,15 +2234,16 @@ def network_present(name, driver=None, containers=None):
             result = True
             for container in containers:
                 try:
-                    ret['changes']['connected'] = __salt__['dockerng.connect_container_to_network'](
-                        container, name)
+                    __salt__['dockerng.connect_container_to_network'](
+                            container['id'], name, ipv4_address=address_map.get(container['name']))
+                    containers_connected.append("{0}: {1}".format(container['name'], address_map.get(container['name'], 'connected')))
                 except Exception as exc:
                     ret['comment'] = ('Failed to connect container \'{0}\' to network \'{1}\' {2}'.format(
-                        container, name, exc))
+                        container['id'], name, exc))
                     result = False
+            ret['changes']['connected'] = containers_connected
             ret['result'] = result
     return ret
-
 
 def network_absent(name, driver=None):
     '''

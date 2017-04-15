@@ -413,7 +413,7 @@ class DockerngTestCase(TestCase):
             with patch.object(dockerng_mod, '_get_client', get_client_mock):
                 dockerng_mod.connect_container_to_network('container', 'foo')
         client.connect_container_to_network.assert_called_once_with(
-            'container', 'foo')
+            'container', 'foo', None)
 
     @skipIf(_docker_py_version() < (1, 5, 0),
             'docker module must be installed to run this test or is too old. >=1.5.0')
