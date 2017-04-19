@@ -137,21 +137,7 @@ def _compare(actual, create_kwargs, defaults_from_image):
     Compare the desired configuration against the actual configuration returned
     by dockerng.inspect_container
     '''
-    def _replace_path_parameters(path):
-        try:
-            start = path.index("<") + 1
-            end = path.index(">")
-            param = path[start:end]
-            param_value = create_kwargs.get(param)
-            if param_value:
-                return path.replace("<" + param + ">", param_value)
-            else:
-                return path
-        except ValueError:
-            return path
-
     def _get(path, default=None):
-        path = _replace_path_parameters(path)
         return salt.utils.traverse_dict(actual, path, default, delimiter=':')
 
     def _image_get(path, default=None):
@@ -191,7 +177,11 @@ def _compare(actual, create_kwargs, defaults_from_image):
             if actual_detach != data:
                 ret.update({item: {'old': actual_detach, 'new': data}})
             continue
+        elif item == 'networks':
+            print("data: {}".format(data))
+            print("actual_data: {}".format(actual_data))
 
+            continue
         elif item == 'environment':
             if actual_data is None:
                 actual_data = []

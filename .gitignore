@@ -30,6 +30,7 @@ MANIFEST
 /tests/unit/templates/roots/
 /var/
 .Python
+pip-selfcheck.json
 
 # setuptools stuff
 *.egg-info

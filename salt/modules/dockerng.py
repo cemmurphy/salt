@@ -212,6 +212,7 @@ from salt.exceptions import CommandExecutionError, SaltInvocationError
 from salt.ext.six.moves import map  # pylint: disable=import-error,redefined-builtin
 from salt.utils.args import get_function_argspec as _argspec
 import salt.utils
+from salt.utils import network
 
 # Import 3rd-party libs
 import salt.ext.six as six
@@ -450,8 +451,8 @@ VALID_CREATE_OPTS = {
         'path': 'HostConfig:NetworkMode',
         'default': 'default',
     },
-    'ipv4_address': {
-        'path': 'NetworkSettings:Networks:<network_mode>:IPAddress',
+    'networks': {
+        'path': 'NetworkSettings:Networks',
         'default': None,
         'min_docker': (1, 12, 0),
     },
@@ -1526,24 +1527,20 @@ def _validate_input(kwargs,
                 '\'container:<id or name>\' or a name of a network.'
             )
 
-    def _valid_ipv4_address():
+    def _valid_networks():
         '''
         Must be a string
         '''
-        if kwargs['ipv4_address'] is None:
+        if kwargs['networks'] is None:
             return
-        try:
-            _valid_string('ipv4_address')
-        except SaltInvocationError:
-            raise SaltInvocationError('ipv4_address must be a string')
 
-        network_mode = kwargs.get('network_mode')
-        if network_mode is None or network_mode in ('bridge', 'host', 'null'):
-            raise SaltInvocationError('ipv4_address not allowed for network_mode: \'{0}\''.format(network_mode))
-
-        if validate_ip_addrs:
-            if not salt.utils.network.is_ip(kwargs['ipv4_address']):
-                raise SaltInvocationError('ip address \'{0}\' is not a valid IP address'.format(kwargs['ipv4_address']))
+        _valid_dictlist('networks')
+        for network_name in kwargs['networks']:
+            _valid_string(network_name)
+            ipv4_address = network_name.get('ipv4_address', None)
+            if ipv4_address and validate_ip_addrs:
+                if not salt.utils.network.is_ip(ipv4_address):
+                    raise SaltInvocationError('ip address \'{0}\' is not a valid IP address'.format(ipv4_address))
 
     def _valid_restart_policy():  # pylint: disable=unused-variable
         '''
@@ -3006,12 +3003,12 @@ def create(image,
         )
 
     # Handle creating Networking Config if ipv4_address is present
-    if 'ipv4_address' in kwargs:
-        ipv4_address = kwargs.pop('ipv4_address')
+    if 'ipv4_address' in create_kwargs:
+        ipv4_address = create_kwargs.pop('ipv4_address')
         client = _get_client()
         endpoint_config = client.create_endpoint_config(ipv4_address=ipv4_address)
         networking_config = client.create_networking_config({kwargs['network_mode']: endpoint_config})
-        kwargs['networking_config'] = networking_config
+        create_kwargs['networking_config'] = networking_config
 
     log.debug(
         'dockerng.create is using the following kwargs to create '
