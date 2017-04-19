@@ -3003,19 +3003,21 @@ def create(image,
         )
 
     # Handle creating Networking Config for passed in networks
+    additional_networks = {}
     if 'networks' in create_kwargs:
         client = _get_client()
-
         networks_dict = salt.utils.repack_dictlist(kwargs['networks'])
-        networking_config_dict = {}
+        first_network = False
         for network_name in networks_dict:
             ipv4_address = None
             if networks_dict.get(network_name, None):
                 ip_dict = salt.utils.repack_dictlist(networks_dict.get(network_name))
                 ipv4_address = ip_dict.get('ipv4_address', None)
-            networking_config_dict[network_name] = client.create_endpoint_config(ipv4_address=ipv4_address)
-
-        create_kwargs['networking_config'] = client.create_networking_config(networking_config_dict)
+            if not first_network:
+                first_network = True
+                create_kwargs['networking_config'] = client.create_networking_config({network_name, client.create_endpoint_config(ipv4_address=ipv4_address)})
+            else:
+                additional_networks[network_name] = {"ipv4_address": ipv4_address}
 
     log.debug(
         'dockerng.create is using the following kwargs to create '
@@ -3027,7 +3029,12 @@ def create(image,
                                name=name,
                                image=image,
                                **create_kwargs)
+
+    for net in additional_networks:
+        connect_container_to_network(response['Id'], net, additional_networks[net].get('ipv4_address', None))
+
     response['Time_Elapsed'] = time.time() - time_started
+    
     _clear_context()
 
     if name is None:
