@@ -193,7 +193,6 @@ import bz2
 import copy
 # Remove unused-import from disabled pylint checks when we uncomment the logic
 # in _get_exec_driver() which checks the docker version
-import distutils.version  # pylint: disable=import-error,no-name-in-module,unused-import
 import fnmatch
 import functools
 import gzip
@@ -1010,7 +1009,6 @@ def _validate_input(kwargs,
     # Import here so that these modules are available when _validate_input is
     # imported into the state module.
     import os  # pylint: disable=reimported,redefined-outer-name
-    import shlex
 
     # Simple type validation
     def _valid_bool(key):  # pylint: disable=unused-variable
@@ -1535,12 +1533,14 @@ def _validate_input(kwargs,
             return
 
         _valid_dictlist('networks')
-        for network_name in kwargs['networks']:
-            _valid_string(network_name)
-            ipv4_address = network_name.get('ipv4_address', None)
-            if ipv4_address and validate_ip_addrs:
-                if not salt.utils.network.is_ip(ipv4_address):
-                    raise SaltInvocationError('ip address \'{0}\' is not a valid IP address'.format(ipv4_address))
+        networks_dict = salt.utils.repack_dictlist(kwargs['networks'])
+        for network_name in networks_dict:
+            if networks_dict.get(network_name, None):
+                ip_dict = salt.utils.repack_dictlist(networks_dict.get(network_name))
+                ipv4_address = ip_dict.get('ipv4_address', None)
+                if ipv4_address and validate_ip_addrs:
+                    if not salt.utils.network.is_ip(ipv4_address):
+                        raise SaltInvocationError('ip address \'{0}\' is not a valid IP address'.format(ipv4_address))
 
     def _valid_restart_policy():  # pylint: disable=unused-variable
         '''
@@ -3002,13 +3002,20 @@ def create(image,
             **dict((arg, create_kwargs.pop(arg, None)) for arg in host_config_args if arg != 'version')
         )
 
-    # Handle creating Networking Config if ipv4_address is present
-    if 'ipv4_address' in create_kwargs:
-        ipv4_address = create_kwargs.pop('ipv4_address')
+    # Handle creating Networking Config for passed in networks
+    if 'networks' in create_kwargs:
         client = _get_client()
-        endpoint_config = client.create_endpoint_config(ipv4_address=ipv4_address)
-        networking_config = client.create_networking_config({kwargs['network_mode']: endpoint_config})
-        create_kwargs['networking_config'] = networking_config
+
+        networks_dict = salt.utils.repack_dictlist(kwargs['networks'])
+        networking_config_dict = {}
+        for network_name in networks_dict:
+            ipv4_address = None
+            if networks_dict.get(network_name, None):
+                ip_dict = salt.utils.repack_dictlist(networks_dict.get(network_name))
+                ipv4_address = ip_dict.get('ipv4_address', None)
+            networking_config_dict[network_name] = client.create_endpoint_config(ipv4_address=ipv4_address)
+
+        create_kwargs['networking_config'] = client.create_networking_config(networking_config_dict)
 
     log.debug(
         'dockerng.create is using the following kwargs to create '
